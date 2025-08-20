@@ -140,7 +140,7 @@ Create a `.env` file in the `agora` directory:
 
 ```env
 # Backend API URL
-REACT_APP_API_URL=http://localhost:5001/api/v1
+REACT_APP_LOGOS_API_URL=http://localhost:5001/api/v1
 ```
 
 ### API Keys Setup
