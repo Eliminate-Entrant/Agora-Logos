@@ -2,7 +2,7 @@ const { SortBy, NewsCategory, ProviderNames } = require('../enums');
 const ArticleData = require('../ArticleData');
 
 /**
- * NewsAPI.org Provider Implementation
+ * NewsAPI.org Provider Example Implementation to show how easy it is to add a new provider
  */
 class NewsAPIProvider {
   constructor(apiKey) {

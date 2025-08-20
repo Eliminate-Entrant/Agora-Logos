@@ -1,6 +1,5 @@
 const GNewsProvider = require('./providers/GNewsProvider');
 const NewsAPIProvider = require('./providers/NewsAPIProvider');
-const GuardianProvider = require('./providers/GuardianProvider');
 const { ProviderNames } = require('./enums');
 const { 
   ProviderNotFoundError, 
@@ -34,12 +33,6 @@ class NewsClient {
     // Register NewsAPI provider if API key is available
     if (env.NEWSAPI_KEY) {
       const provider = new NewsAPIProvider(env.NEWSAPI_KEY);
-      this._registerProvider(provider);
-    }
-
-    // Register Guardian provider if API key is available
-    if (env.GUARDIAN_API_KEY) {
-      const provider = new GuardianProvider(env.GUARDIAN_API_KEY);
       this._registerProvider(provider);
     }
 

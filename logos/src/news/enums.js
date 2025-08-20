@@ -26,8 +26,7 @@ const NewsCategory = {
 
 const ProviderNames = {
   GNEWS: 'gnews',
-  NEWSAPI: 'newsapi',
-  GUARDIAN: 'guardian'
+  NEWSAPI: 'newsapi'
 };
 
 module.exports = {
