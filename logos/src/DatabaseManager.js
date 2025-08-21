@@ -22,23 +22,7 @@ class DatabaseManager {
     
     // Database connection configuration
     this.dbUrl = options.dbUrl || options.mongoUri || process.env.MONGODB_URI || 'mongodb://localhost:27017/logos';
-    
-    // Detect if connecting to MongoDB Atlas or cloud provider
-    const isCloudDb = this.dbUrl.includes('mongodb.net') || this.dbUrl.includes('mongodb+srv');
-    
     this.connectionOptions = {
-      // Conditional SSL configuration for cloud deployments
-      ...(isCloudDb && {
-        ssl: true,
-        sslValidate: true,
-        retryWrites: true,
-        w: 'majority'
-      }),
-      // Common configuration
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      bufferCommands: false,
-      bufferMaxEntries: 0,
       ...options.connectionOptions
     };
     
