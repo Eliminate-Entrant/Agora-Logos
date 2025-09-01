@@ -1,27 +1,158 @@
 const express = require('express');
 const AgentSynopsis = require('../ai/AgentSynopsis');
 const DatabaseManager = require('../DatabaseManager');
+const QueueManager = require('../queue/QueueManager');
 const { newsErrorHandler } = require('../news/errors/NewsErrors');
 
 const router = express.Router();
 
-// Initialize agent singleton
+// Initialize services
 const agent = new AgentSynopsis({
   cacheEnabled: true,
   maxContentLength: 8000
 });
 
+const queueManager = new QueueManager();
 
+// ASYNC: Queue article for analysis
 router.post('/article', async (req, res) => {
   try {
     const articleData = req.body;
+    const { priority, sync } = req.query; // Allow forcing sync mode for testing
     
-    const analysis = await agent.analyzeArticle(articleData);
+    // Option 1: Synchronous mode (original behavior) - for backward compatibility
+    if (sync === 'true') {
+      const analysis = await agent.analyzeArticle(articleData);
+      
+      return res.json({
+        success: true,
+        message: 'Article analyzed successfully (synchronous)',
+        data: analysis,
+        sync: true
+      });
+    }
+    
+    // Option 2: Asynchronous mode (new default)
+    const job = await queueManager.queueArticleAnalysis(articleData, {
+      priority: priority ? parseInt(priority) : 0,
+      userId: req.user?.id, // If you have authentication
+    });
+    
+    res.status(202).json({
+      success: true,
+      message: 'Article queued for analysis',
+      data: {
+        jobId: job.jobId,
+        status: job.status,
+        estimatedWaitTime: job.estimatedWaitTime,
+        queuedAt: job.queuedAt,
+        statusUrl: `/api/v1/analysis/job/${job.jobId}`,
+        resultUrl: `/api/v1/analysis/job/${job.jobId}/result`
+      },
+      async: true
+    });
+
+  } catch (error) {
+    newsErrorHandler(error, req, res);
+  }
+});
+
+// NEW: Get job status
+router.get('/job/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    const status = await queueManager.getJobStatus(jobId);
+    
+    if (!status) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found',
+        message: 'The specified job ID does not exist or has expired'
+      });
+    }
     
     res.json({
       success: true,
-      message: 'Article analyzed successfully',
-      data: analysis
+      data: status
+    });
+
+  } catch (error) {
+    newsErrorHandler(error, req, res);
+  }
+});
+
+// NEW: Get job result (for completed jobs)
+router.get('/job/:jobId/result', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    const status = await queueManager.getJobStatus(jobId);
+    
+    if (!status) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+    
+    if (status.status !== 'completed') {
+      return res.status(202).json({
+        success: false,
+        message: `Job is ${status.status}`,
+        data: {
+          status: status.status,
+          progress: status.progress,
+          queuePosition: status.queuePosition
+        }
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Analysis completed',
+      data: status.result || status.analysis
+    });
+
+  } catch (error) {
+    newsErrorHandler(error, req, res);
+  }
+});
+
+// NEW: Cancel job
+router.delete('/job/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    const cancelled = await queueManager.cancelJob(jobId);
+    
+    if (!cancelled) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot cancel job',
+        message: 'Job may be already completed, failed, or does not exist'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Job cancelled successfully',
+      data: { jobId }
+    });
+
+  } catch (error) {
+    newsErrorHandler(error, req, res);
+  }
+});
+
+// NEW: Get queue statistics
+router.get('/queue/stats', async (req, res) => {
+  try {
+    const stats = await queueManager.getQueueStats();
+    
+    res.json({
+      success: true,
+      data: stats
     });
 
   } catch (error) {

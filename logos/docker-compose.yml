@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # Redis for message queue
+  redis:
+    image: redis:7-alpine
+    container_name: logos-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # MongoDB for data storage
+  mongodb:
+    image: mongo:7
+    container_name: logos-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: smart-news-analysis
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Main API server
+  api:
+    build: .
+    container_name: logos-api
+    ports:
+      - "5001:5001"
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongodb:27017/smart-news-analysis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm start
+
+  # Background worker for analysis
+  worker:
+    build: .
+    container_name: logos-worker
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongodb:27017/smart-news-analysis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run worker
+    # Scale workers based on load
+    deploy:
+      replicas: 2
+
+volumes:
+  redis_data:
+  mongodb_data:

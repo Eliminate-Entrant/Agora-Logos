@@ -72,12 +72,77 @@ export const newsAPI = {
 
 // Analysis API functions
 export const analysisAPI = {
-  // Analyze a single article
-  analyzeArticle: async (articleData) => {
-    const response = await api.post('/analysis/article', articleData);
-    console.log("DD response", response.data);
-    console.log("DD", response);
+  // Analyze a single article (async by default)
+  analyzeArticle: async (articleData, options = {}) => {
+    const { sync = false, priority = 0 } = options;
+    
+    const params = new URLSearchParams();
+    if (sync) params.append('sync', 'true');
+    if (priority) params.append('priority', priority.toString());
+    
+    const url = `/analysis/article${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await api.post(url, articleData);
+    
     return response.data;
+  },
+
+  // Analyze article synchronously (for backward compatibility)
+  analyzeArticleSync: async (articleData) => {
+    return await analysisAPI.analyzeArticle(articleData, { sync: true });
+  },
+
+  // Get job status
+  getJobStatus: async (jobId) => {
+    const response = await api.get(`/analysis/job/${jobId}`);
+    return response.data;
+  },
+
+  // Get job result (for completed jobs)
+  getJobResult: async (jobId) => {
+    const response = await api.get(`/analysis/job/${jobId}/result`);
+    return response.data;
+  },
+
+  // Cancel a job
+  cancelJob: async (jobId) => {
+    const response = await api.delete(`/analysis/job/${jobId}`);
+    return response.data;
+  },
+
+  // Get queue statistics
+  getQueueStats: async () => {
+    const response = await api.get('/analysis/queue/stats');
+    return response.data;
+  },
+
+  // Poll for job completion
+  pollJobCompletion: async (jobId, onProgress = null, maxAttempts = 60) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const statusResponse = await analysisAPI.getJobStatus(jobId);
+      const status = statusResponse.data;
+      
+      if (onProgress) {
+        onProgress(status);
+      }
+      
+      if (status.status === 'completed') {
+        return status.result || status.analysis;
+      }
+      
+      if (status.status === 'failed') {
+        throw new Error(status.error || 'Analysis failed');
+      }
+      
+      if (status.status === 'cancelled') {
+        throw new Error('Analysis was cancelled');
+      }
+      
+      // Wait before next poll (exponential backoff)
+      const delay = Math.min(1000 + (attempt * 500), 5000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    
+    throw new Error('Analysis timed out - job took too long to complete');
   },
 
   // Search analyzed articles

@@ -10,6 +10,8 @@ const ArticleDetail = ({ article, onClose }) => {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const [jobId, setJobId] = useState(null);
 
   const loadAnalysis = useCallback(async () => {
     if (!article?.url) return;
@@ -17,6 +19,7 @@ const ArticleDetail = ({ article, onClose }) => {
     try {
       setLoading(true);
       setError(null);
+      setProgress(null);
 
       // If the article already has analysis data (from RecentArticles), use it
       if (article.summary && article.sentiment) {
@@ -37,8 +40,7 @@ const ArticleDetail = ({ article, onClose }) => {
         return;
       }
 
-      // analyzeArticle endpoint handles caching internally
-      const articleAnalysis = await analysisAPI.analyzeArticle({
+      const articleData = {
         title: article.title,
         content: article.content || article.description || '',
         url: article.url,
@@ -46,19 +48,69 @@ const ArticleDetail = ({ article, onClose }) => {
         urlToImage: article.urlToImage,
         publishedAt: article.publishedAt,
         source: article.source
-      });
+      };
 
-      setAnalysis(articleAnalysis);
-      toast.success('AI analysis completed!');
+      // Start async analysis
+      const jobResponse = await analysisAPI.analyzeArticle(articleData);
+      
+      // Check if this was a synchronous response (cached result)
+      if (jobResponse.sync || jobResponse.data?.summary) {
+        setAnalysis(jobResponse);
+        toast.success('AI analysis completed!');
+        return;
+      }
+
+      // Handle async job
+      if (jobResponse.async && jobResponse.data?.jobId) {
+        const currentJobId = jobResponse.data.jobId;
+        setJobId(currentJobId);
+        
+        toast.success(`Analysis queued! Estimated wait: ${Math.round(jobResponse.data.estimatedWaitTime / 1000)}s`);
+        
+        // Poll for completion with progress updates
+        const result = await analysisAPI.pollJobCompletion(
+          currentJobId,
+          (status) => {
+            setProgress({
+              status: status.status,
+              queuePosition: status.queuePosition,
+              estimatedWaitTime: status.estimatedWaitTime
+            });
+            
+            // Update progress messages
+            if (status.status === 'processing') {
+              toast.loading('AI is analyzing the article...', { id: 'analysis-progress' });
+            } else if (status.queuePosition > 0) {
+              toast.loading(`Position in queue: ${status.queuePosition}`, { id: 'analysis-progress' });
+            }
+          }
+        );
+        
+        toast.dismiss('analysis-progress');
+        setAnalysis({ data: result });
+        toast.success('AI analysis completed!');
+      }
 
     } catch (err) {
       console.error('Analysis error:', err);
       setError(err.message);
+      toast.dismiss('analysis-progress');
       toast.error('Failed to analyze article');
     } finally {
       setLoading(false);
+      setProgress(null);
+      setJobId(null);
     }
   }, [article?.url, article?.summary, article?.sentiment]);
+
+  // Cancel job if component unmounts during processing
+  useEffect(() => {
+    return () => {
+      if (jobId) {
+        analysisAPI.cancelJob(jobId).catch(console.warn);
+      }
+    };
+  }, [jobId]);
 
   useEffect(() => {
     if (article?.url) {
@@ -181,9 +233,47 @@ const ArticleDetail = ({ article, onClose }) => {
           </CardHeader>
           <CardContent>
             {loading && (
-              <div className="flex items-center justify-center py-8">
+              <div className="flex flex-col items-center justify-center py-8 space-y-4">
                 <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
-                <span className="ml-2 text-gray-600">Analyzing article...</span>
+                
+                {progress?.status === 'queued' && progress?.queuePosition > 0 && (
+                  <div className="text-center">
+                    <span className="text-gray-600">Position in queue: {progress.queuePosition}</span>
+                    {progress.estimatedWaitTime && (
+                      <div className="text-sm text-gray-500 mt-1">
+                        Estimated wait: {Math.round(progress.estimatedWaitTime / 1000)}s
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {progress?.status === 'processing' && (
+                  <div className="text-center">
+                    <span className="text-gray-600">AI is analyzing the article...</span>
+                    <div className="text-sm text-gray-500 mt-1">This may take 10-30 seconds</div>
+                  </div>
+                )}
+                
+                {!progress && (
+                  <span className="text-gray-600">Starting analysis...</span>
+                )}
+                
+                {jobId && (
+                  <button
+                    onClick={() => {
+                      if (jobId) {
+                        analysisAPI.cancelJob(jobId);
+                        setLoading(false);
+                        setJobId(null);
+                        setProgress(null);
+                        toast.success('Analysis cancelled');
+                      }
+                    }}
+                    className="text-sm text-red-600 hover:text-red-700 underline"
+                  >
+                    Cancel Analysis
+                  </button>
+                )}
               </div>
             )}
 
